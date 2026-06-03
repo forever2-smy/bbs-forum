@@ -12,8 +12,14 @@ login_manager.session_protection = 'basic'
 def create_app():
     app = Flask(__name__, static_folder=None)
     app.config.from_object(Config)
-    CORS(app, supports_credentials=True,
-         origins=['http://localhost:5001', 'http://127.0.0.1:5001', 'http://localhost:5000'])
+    # 生产环境允许所有来源，本地开发限制具体端口
+    allowed_origins = os.environ.get('CORS_ORIGINS', '').split(',')
+    if allowed_origins == ['']:
+        allowed_origins = [
+            'http://localhost:5001', 'http://127.0.0.1:5001',
+            'http://localhost:5000', 'http://127.0.0.1:5000',
+        ]
+    CORS(app, supports_credentials=True, origins=allowed_origins)
     db.init_app(app)
     login_manager.init_app(app)
 
