@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
-from ..models import db, User, Board, Post
+from ..models import db, User, Board, Post, Dynamic, Reply
+from sqlalchemy import or_
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 
@@ -110,5 +111,127 @@ def delete_board(board_id):
     if board.post_count > 0:
         return jsonify({'ok': False, 'msg': '板块下有帖子'}), 400
     db.session.delete(board)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@admin_bp.route('/posts', methods=['GET'])
+@login_required
+def list_all_posts():
+    if not admin_required():
+        return jsonify({'ok': False, 'msg': '权限不足'}), 403
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
+    q = request.args.get('q', '').strip()
+    query = Post.query.filter(Post.status != 'deleted')
+    if q:
+        query = query.filter(or_(Post.title.contains(q), Post.content.contains(q)))
+    query = query.order_by(Post.created_at.desc())
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    return jsonify({
+        'ok': True,
+        'posts': [p.to_dict(include_content=True) for p in pagination.items],
+        'total': pagination.total,
+        'pages': pagination.pages,
+        'page': page,
+    })
+
+
+@admin_bp.route('/posts/<int:post_id>', methods=['DELETE'])
+@login_required
+def admin_delete_post(post_id):
+    if not admin_required():
+        return jsonify({'ok': False, 'msg': '权限不足'}), 403
+    post = Post.query.get_or_404(post_id)
+    post.status = 'deleted'
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@admin_bp.route('/posts/<int:post_id>/top', methods=['POST'])
+@login_required
+def admin_toggle_top(post_id):
+    if not admin_required():
+        return jsonify({'ok': False, 'msg': '权限不足'}), 403
+    post = Post.query.get_or_404(post_id)
+    post.is_top = not post.is_top
+    db.session.commit()
+    return jsonify({'ok': True, 'is_top': post.is_top})
+
+
+@admin_bp.route('/posts/<int:post_id>/essence', methods=['POST'])
+@login_required
+def admin_toggle_essence(post_id):
+    if not admin_required():
+        return jsonify({'ok': False, 'msg': '权限不足'}), 403
+    post = Post.query.get_or_404(post_id)
+    post.is_essence = not post.is_essence
+    db.session.commit()
+    return jsonify({'ok': True, 'is_essence': post.is_essence})
+
+
+@admin_bp.route('/dynamics', methods=['GET'])
+@login_required
+def list_all_dynamics():
+    if not admin_required():
+        return jsonify({'ok': False, 'msg': '权限不足'}), 403
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
+    pagination = Dynamic.query.order_by(Dynamic.created_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False)
+    return jsonify({
+        'ok': True,
+        'dynamics': [d.to_dict() for d in pagination.items],
+        'total': pagination.total,
+        'pages': pagination.pages,
+        'page': page,
+    })
+
+
+@admin_bp.route('/dynamics/<int:dynamic_id>', methods=['DELETE'])
+@login_required
+def admin_delete_dynamic(dynamic_id):
+    if not admin_required():
+        return jsonify({'ok': False, 'msg': '权限不足'}), 403
+    from ..models import DynamicComment, DynamicLike
+    d = Dynamic.query.get_or_404(dynamic_id)
+    DynamicComment.query.filter_by(dynamic_id=dynamic_id).delete()
+    DynamicLike.query.filter_by(dynamic_id=dynamic_id).delete()
+    db.session.delete(d)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@admin_bp.route('/replies', methods=['GET'])
+@login_required
+def list_all_replies():
+    if not admin_required():
+        return jsonify({'ok': False, 'msg': '权限不足'}), 403
+    post_id = request.args.get('post_id', type=int)
+    query = Reply.query
+    if post_id:
+        query = query.filter_by(post_id=post_id)
+    query = query.order_by(Reply.created_at.desc())
+    page = request.args.get('page', 1, type=int)
+    per_page = 30
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    return jsonify({
+        'ok': True,
+        'replies': [r.to_dict() for r in pagination.items],
+        'total': pagination.total,
+        'page': page,
+    })
+
+
+@admin_bp.route('/replies/<int:reply_id>', methods=['DELETE'])
+@login_required
+def admin_delete_reply(reply_id):
+    if not admin_required():
+        return jsonify({'ok': False, 'msg': '权限不足'}), 403
+    reply = Reply.query.get_or_404(reply_id)
+    post = reply.post
+    if post:
+        post.reply_count = max(0, (post.reply_count or 0) - 1)
+    db.session.delete(reply)
     db.session.commit()
     return jsonify({'ok': True})

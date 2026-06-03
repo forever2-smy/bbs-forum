@@ -168,6 +168,19 @@ def create_reply(post_id):
     return jsonify({'ok': True, 'reply_id': reply.id})
 
 
+@post_bp.route('/replies/<int:reply_id>', methods=['DELETE'])
+@login_required
+def delete_reply(reply_id):
+    reply = Reply.query.get_or_404(reply_id)
+    if reply.author_id != current_user.id and not current_user.is_moderator:
+        return jsonify({'ok': False, 'msg': '无权删除'}), 403
+    post = reply.post
+    post.reply_count = max(0, (post.reply_count or 0) - 1)
+    db.session.delete(reply)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
 @post_bp.route('/replies/<int:reply_id>/accept', methods=['POST'])
 @login_required
 def accept_reply(reply_id):

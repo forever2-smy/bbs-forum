@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
-from ..models import db, User, Post, Reply, Favorite, Message
+from ..models import db, User, Post, Reply, Favorite, Message, Follow, Friend, Dynamic
+from sqlalchemy import or_, and_
 
 user_bp = Blueprint('user', __name__, url_prefix='/api/users')
 
@@ -10,11 +11,62 @@ def get_user(user_id):
     user = User.query.get_or_404(user_id)
     posts = user.posts.filter_by(status='normal').order_by(Post.created_at.desc()).limit(10).all()
     reply_count = user.replies.count()
+    follower_count = user.follower_count
+    following_count = user.following_count
+    friend_count = user.friend_count
+    dynamic_count = user.dynamic_count
+    # 查询当前登录用户是否关注/好友
+    is_following = False
+    is_friend = False
+    friend_pending = False
+    if current_user.is_authenticated and current_user.id != user_id:
+        is_following = Follow.query.filter_by(follower_id=current_user.id, following_id=user_id).first() is not None
+        fr = Friend.query.filter(
+            or_(
+                and_(Friend.user_id == current_user.id, Friend.friend_id == user_id),
+                and_(Friend.user_id == user_id, Friend.friend_id == current_user.id)
+            )
+        ).first()
+        if fr and fr.status == 'accepted':
+            is_friend = True
+        elif fr and fr.status == 'pending':
+            friend_pending = True
     return jsonify({
         'ok': True,
         'user': user.to_dict(),
         'posts': [p.to_dict() for p in posts],
         'reply_count': reply_count,
+        'follower_count': follower_count,
+        'following_count': following_count,
+        'friend_count': friend_count,
+        'dynamic_count': dynamic_count,
+        'is_following': is_following,
+        'is_friend': is_friend,
+        'friend_pending': friend_pending,
+    })
+
+
+@user_bp.route('/<int:user_id>/dynamics', methods=['GET'])
+def get_user_dynamics(user_id):
+    User.query.get_or_404(user_id)
+    page = request.args.get('page', 1, type=int)
+    per_page = 15
+    pagination = Dynamic.query.filter_by(author_id=user_id).order_by(
+        Dynamic.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    dynamics = []
+    for d in pagination.items:
+        item = d.to_dict()
+        if current_user.is_authenticated:
+            from ..models import DynamicLike
+            item['is_liked'] = DynamicLike.query.filter_by(
+                user_id=current_user.id, dynamic_id=d.id).first() is not None
+        else:
+            item['is_liked'] = False
+        dynamics.append(item)
+    return jsonify({
+        'ok': True,
+        'dynamics': dynamics,
+        'total': pagination.total,
     })
 
 
@@ -158,3 +210,18 @@ def read_message(msg_id):
 def unread_count():
     count = Message.query.filter_by(receiver_id=current_user.id, is_read=False).count()
     return jsonify({'ok': True, 'count': count})
+
+
+@user_bp.route('/active', methods=['GET'])
+def active_users():
+    """公开接口：获取活跃用户（按积分排序）"""
+    limit = request.args.get('limit', 8, type=int)
+    users = User.query.filter_by(status='active').order_by(User.points.desc()).limit(limit).all()
+    return jsonify({
+        'ok': True,
+        'users': [{
+            'id': u.id, 'username': u.username, 'avatar': u.avatar,
+            'signature': u.signature, 'points': u.points,
+            'post_count': u.posts.filter_by(status='normal').count(),
+        } for u in users],
+    })

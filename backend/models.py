@@ -1,6 +1,7 @@
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
+from sqlalchemy import or_, and_
 
 db = SQLAlchemy()
 
@@ -42,8 +43,27 @@ class User(UserMixin, db.Model):
             return self.avatar
         return ''
 
-    def to_dict(self):
-        return {
+    @property
+    def follower_count(self):
+        return Follow.query.filter_by(following_id=self.id).count()
+
+    @property
+    def following_count(self):
+        return Follow.query.filter_by(follower_id=self.id).count()
+
+    @property
+    def friend_count(self):
+        return Friend.query.filter(
+            or_(Friend.user_id == self.id, Friend.friend_id == self.id),
+            Friend.status == 'accepted'
+        ).count()
+
+    @property
+    def dynamic_count(self):
+        return self.dynamics_list.count()
+
+    def to_dict(self, include_social=False):
+        d = {
             'id': self.id, 'username': self.username, 'email': self.email,
             'avatar': self.avatar, 'bio': self.bio, 'signature': self.signature,
             'gender': self.gender, 'birthday': self.birthday,
@@ -54,6 +74,12 @@ class User(UserMixin, db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'post_count': self.posts.filter_by(status='normal').count(),
         }
+        if include_social:
+            d['follower_count'] = self.follower_count
+            d['following_count'] = self.following_count
+            d['friend_count'] = self.friend_count
+            d['dynamic_count'] = self.dynamic_count
+        return d
 
 
 class Board(db.Model):
@@ -152,6 +178,117 @@ class Favorite(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     __table_args__ = (db.UniqueConstraint('user_id', 'post_id'),)
+
+
+class Follow(db.Model):
+    __tablename__ = 'follows'
+    id = db.Column(db.Integer, primary_key=True)
+    follower_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    following_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    follower = db.relationship('User', foreign_keys=[follower_id])
+    following = db.relationship('User', foreign_keys=[following_id])
+
+    __table_args__ = (db.UniqueConstraint('follower_id', 'following_id'),)
+
+
+class Friend(db.Model):
+    __tablename__ = 'friends'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    friend_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    status = db.Column(db.String(20), default='pending')  # pending / accepted
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', foreign_keys=[user_id])
+    friend_user = db.relationship('User', foreign_keys=[friend_id])
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'friend_id'),)
+
+
+class Dynamic(db.Model):
+    __tablename__ = 'dynamics'
+    id = db.Column(db.Integer, primary_key=True)
+    author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    image = db.Column(db.String(255), default='')
+    like_count = db.Column(db.Integer, default=0)
+    comment_count = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    author = db.relationship('User', backref=db.backref('dynamics_list', lazy='dynamic'))
+    comments = db.relationship('DynamicComment', backref='dynamic', lazy='dynamic',
+                               order_by='DynamicComment.created_at.asc()')
+    likes = db.relationship('DynamicLike', backref='dynamic', lazy='dynamic')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'author_id': self.author_id,
+            'author_name': self.author.username if self.author else '',
+            'author_avatar': self.author.avatar if self.author else '',
+            'content': self.content,
+            'image': self.image or '',
+            'like_count': self.like_count or 0,
+            'comment_count': self.comment_count or 0,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class DynamicComment(db.Model):
+    __tablename__ = 'dynamic_comments'
+    id = db.Column(db.Integer, primary_key=True)
+    dynamic_id = db.Column(db.Integer, db.ForeignKey('dynamics.id'), nullable=False)
+    author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    author = db.relationship('User')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'dynamic_id': self.dynamic_id,
+            'author_id': self.author_id,
+            'author_name': self.author.username if self.author else '',
+            'author_avatar': self.author.avatar if self.author else '',
+            'content': self.content,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class DynamicLike(db.Model):
+    __tablename__ = 'dynamic_likes'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    dynamic_id = db.Column(db.Integer, db.ForeignKey('dynamics.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'dynamic_id'),)
+
+
+class Repost(db.Model):
+    __tablename__ = 'reposts'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=False)
+    comment = db.Column(db.String(500), default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref='reposts_list')
+    post = db.relationship('Post', backref='reposts_list')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'user_name': self.user.username if self.user else '',
+            'post_id': self.post_id,
+            'post_title': self.post.title if self.post else '',
+            'comment': self.comment or '',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
 
 
 class Message(db.Model):

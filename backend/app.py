@@ -32,12 +32,16 @@ def create_app():
     from .routes.board import board_bp
     from .routes.user import user_bp
     from .routes.admin import admin_bp
+    from .routes.dynamic import dynamic_bp
+    from .routes.social import social_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(post_bp)
     app.register_blueprint(board_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(dynamic_bp)
+    app.register_blueprint(social_bp)
 
     # 前端静态文件服务（生产环境可由 Nginx 提供）
     frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'frontend')
@@ -79,6 +83,10 @@ def _init_data():
             Board(name='后端架构', description='Python·Java·Go·数据库', icon='⚙️', sort_order=6),
             Board(name='算法竞赛', description='LeetCode·ACM·面试题', icon='🏆', sort_order=7),
             Board(name='资源分享', description='电子书·工具·开源项目', icon='📚', sort_order=8),
+            Board(name='游戏天地', description='手游·端游·主机·攻略', icon='🕹️', sort_order=9),
+            Board(name='影视音乐', description='电影·剧集·音乐·追番', icon='🎬', sort_order=10),
+            Board(name='美食旅游', description='美食·探店·旅行·攻略', icon='🍜', sort_order=11),
+            Board(name='数码科技', description='手机·电脑·智能硬件·测评', icon='📱', sort_order=12),
         ]
         for b in boards:
             db.session.add(b)
