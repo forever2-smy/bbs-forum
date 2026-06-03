@@ -75,6 +75,10 @@ def _init_data():
             Board(name='校园生活', description='活动·资讯·互助', icon='🎓', sort_order=2),
             Board(name='职场求职', description='实习·就业·经验分享', icon='💼', sort_order=3),
             Board(name='灌水乐园', description='娱乐·八卦·放松区', icon='🎮', sort_order=4),
+            Board(name='前端开发', description='HTML·CSS·JS·Vue·React', icon='🎨', sort_order=5),
+            Board(name='后端架构', description='Python·Java·Go·数据库', icon='⚙️', sort_order=6),
+            Board(name='算法竞赛', description='LeetCode·ACM·面试题', icon='🏆', sort_order=7),
+            Board(name='资源分享', description='电子书·工具·开源项目', icon='📚', sort_order=8),
         ]
         for b in boards:
             db.session.add(b)

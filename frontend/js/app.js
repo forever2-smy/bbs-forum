@@ -40,18 +40,29 @@ const App = {
       const unreadRes = await this.api('/api/users/unread_count').catch(() => ({ count: 0 }));
       const unread = unreadRes.count || 0;
       userArea = `
-        <div class="user-area">
+        <div class="user-area" onclick="App.toggleUserDropdown(event)">
           <div class="avatar">${this.user.username[0]}</div>
-          <a href="#/profile/${this.user.id}" style="color:#fff;font-weight:600;font-size:.9rem;">${this.user.username}</a>
-          <span class="points">${this.user.points}分</span>
-          <a href="#/messages" style="color:rgba(255,255,255,.7);font-size:.85rem;">私信${unread ? `<span style="background:var(--danger);color:#fff;border-radius:50%;padding:1px 6px;font-size:.7rem;margin-left:2px;">${unread}</span>` : ''}</a>
-          <a href="#" onclick="App.logout()" style="color:rgba(255,255,255,.7);font-size:.85rem;">退出</a>
+          <div class="user-dropdown" id="user-dropdown" onclick="event.stopPropagation()">
+            <div style="padding: 12px 18px; border-bottom: 1px solid var(--gray-100);">
+              <div style="font-weight: 700; color: var(--dark);">${this.esc(this.user.username)}</div>
+              <div style="font-size: .75rem; color: var(--gray-400); margin-top: 2px;">
+                ${this.user.points} 积分 · ${this.user.role === 'admin' ? '管理员' : '用户'}
+              </div>
+            </div>
+            <a href="#/profile/${this.user.id}">👤 个人主页</a>
+            <a href="#/messages">✉️ 私信${unread ? ` <span style="color:var(--danger);font-weight:700;">(${unread})</span>` : ''}</a>
+            <a href="javascript:void(0)" onclick="App.showMyPosts()">📝 我的帖子</a>
+            <a href="javascript:void(0)" onclick="App.showMyFavs()">⭐ 我的收藏</a>
+            ${this.user.role === 'admin' ? '<a href="#/admin">⚙️ 管理后台</a>' : ''}
+            <div style="border-top: 1px solid var(--gray-100); margin-top: 4px;"></div>
+            <a href="javascript:void(0)" onclick="App.logout()" style="color: var(--danger);">🚪 退出登录</a>
+          </div>
         </div>`;
     } else {
       userArea = `
         <div class="user-area">
-          <a href="#/login" style="color:rgba(255,255,255,.8);font-size:.9rem;">登录</a>
-          <a href="#/register" style="color:rgba(255,255,255,.8);font-size:.9rem;">注册</a>
+          <a href="#/login" style="color:rgba(255,255,255,.8);font-size:.9rem;padding:8px 14px;border-radius:var(--radius-sm);transition:all .2s;">登录</a>
+          <a href="#/register" style="color:rgba(255,255,255,.8);font-size:.9rem;padding:8px 14px;border-radius:var(--radius-sm);transition:all .2s;">注册</a>
         </div>`;
     }
     const isAdmin = this.user && this.user.role === 'admin';
@@ -59,15 +70,42 @@ const App = {
       <a class="brand" href="#/"><span>💬</span> BBS论坛</a>
       <div class="nav-links">
         <a href="#/">首页</a>
-        ${this.user ? '<a href="#/new-post">发帖</a>' : ''}
-        ${this.user ? `<a href="#/messages">私信</a>` : ''}
         ${isAdmin ? '<a href="#/admin">管理</a>' : ''}
       </div>
-      <div class="search-box">
-        <input type="text" id="search-input" placeholder="搜索帖子..." onkeydown="if(event.key==='Enter')App.search()">
-        <button onclick="App.search()">🔍</button>
-      </div>
       ${userArea}`;
+  },
+
+  toggleUserDropdown(e) {
+    e.stopPropagation();
+    const dd = document.getElementById('user-dropdown');
+    if (!dd) return;
+    const show = dd.style.display !== 'block';
+    dd.style.display = show ? 'block' : 'none';
+    if (show) {
+      const close = (ev) => {
+        if (!ev.target.closest('.user-area')) {
+          dd.style.display = 'none';
+          document.removeEventListener('click', close);
+        }
+      };
+      setTimeout(() => document.addEventListener('click', close), 0);
+    }
+  },
+
+  async showMyPosts() {
+    const dd = document.getElementById('user-dropdown');
+    if (dd) dd.style.display = 'none';
+    location.hash = `#/profile/${this.user.id}`;
+  },
+
+  async showMyFavs() {
+    const dd = document.getElementById('user-dropdown');
+    if (dd) dd.style.display = 'none';
+    location.hash = `#/profile/${this.user.id}`;
+    setTimeout(() => {
+      const tabs = document.querySelectorAll('.profile-tab');
+      if (tabs[2]) tabs[2].click();
+    }, 400);
   },
 
   bindNav() {},
@@ -81,6 +119,7 @@ const App = {
       '/board': () => this.pageBoard(),
       '/post': () => this.pagePost(),
       '/new-post': () => this.pageNewPost(),
+      '/edit-post': () => this.pageEditPost(),
       '/profile': () => this.pageProfile(),
       '/messages': () => this.pageMessages(),
       '/admin': () => this.pageAdmin(),
@@ -104,10 +143,32 @@ const App = {
     const data = await this.api('/api/boards');
     if (!data.ok) return;
     const boards = data.boards;
-    let html = `<div class="section-title">🏠 论坛板块</div><div class="boards-grid">`;
+    let html = `
+      <div class="hero-search">
+        <h1>🔍 发现精彩内容</h1>
+        <p class="subtitle">探索 ${boards.length} 个板块，与社区一起成长</p>
+        <div class="search-bar">
+          <select id="search-category">
+            <option value="all">全部板块</option>
+            ${boards.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}
+          </select>
+          <input type="text" id="search-input" placeholder="搜索帖子、话题、内容..." onkeydown="if(event.key==='Enter')App.search()">
+          <button onclick="App.search()">🔍</button>
+        </div>
+        <div class="search-tags">
+          <span>热门搜索</span>
+          <a href="javascript:void(0)" onclick="App.quickSearch('Python')">Python</a>
+          <a href="javascript:void(0)" onclick="App.quickSearch('求职')">求职</a>
+          <a href="javascript:void(0)" onclick="App.quickSearch('校园')">校园</a>
+          <a href="javascript:void(0)" onclick="App.quickSearch('面试')">面试</a>
+          <a href="javascript:void(0)" onclick="App.quickSearch('技术栈')">技术栈</a>
+        </div>
+      </div>
+      <div class="section-title">🏠 论坛板块</div>
+      <div class="boards-grid">`;
     for (const b of boards) {
       html += `
-        <div class="card board-card" onclick="location.hash='#/board?id=${b.id}'">
+        <div class="card board-card" onclick="location.hash='#/board?id=${b.id}'" style="animation-delay: ${b.id * 0.06}s;">
           <div class="card-body">
             <div class="board-icon">${b.icon || '💬'}</div>
             <div class="board-name">${b.name}</div>
@@ -120,8 +181,7 @@ const App = {
     }
     html += '</div>';
     if (this.user) {
-      html += `<div style="text-align:center;margin-top:24px;">
-        <a href="#/new-post" class="btn btn-primary btn-lg">✏️ 发布新帖</a></div>`;
+      html += `<a href="#/new-post" class="fab" title="发布新帖">✏️</a>`;
     }
     this.setContent(html);
   },
@@ -289,6 +349,57 @@ const App = {
         <a href="javascript:history.back()" class="btn btn-outline btn-lg" style="margin-left:8px;">取消</a>
       </div></div>`;
     this.setContent(html);
+  },
+
+  async pageEditPost() {
+    if (!this.user) { location.hash = '#/login'; return; }
+    const { params } = this.getParams();
+    const postId = params.get('id');
+    const data = await this.api(`/api/posts/${postId}`);
+    if (!data.ok) return;
+    const p = data.post;
+    if (this.user.id !== p.author_id && this.user.role === 'user') {
+      this.toast('无权编辑此帖子', 'error');
+      location.hash = `#/post?id=${postId}`;
+      return;
+    }
+    const boardsRes = await this.api('/api/boards');
+    const boards = boardsRes.boards || [];
+    let html = `
+      <div class="breadcrumb-nav"><a href="#/">首页</a><span class="sep">/</span><a href="#/post?id=${postId}">${this.esc(p.title).slice(0,20)}</a><span class="sep">/</span><span>编辑帖子</span></div>
+      <div class="section-title">✏️ 编辑帖子</div>
+      <div class="card"><div class="card-body">
+        <div class="form-group"><label>选择板块</label>
+          <select id="post-board" class="form-control">
+            ${boards.map(b => `<option value="${b.id}" ${b.id == p.board_id ? 'selected' : ''}>${b.name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>帖子标题</label>
+          <input type="text" id="post-title" class="form-control" value="${this.esc(p.title)}" maxlength="200">
+        </div>
+        <div class="form-group"><label>帖子内容</label>
+          <textarea id="post-content" class="form-control" rows="10">${this.esc(p.content)}</textarea>
+        </div>
+        <div class="form-group"><label>积分奖励</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="number" id="post-reward" class="form-control" value="${p.reward_points || 0}" min="0" style="width:120px;">
+            <span style="font-size:.85rem;color:var(--gray-500);">当前余额: ${this.user.points}分</span>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-lg" onclick="App.submitEditPost(${postId})">💾 保存修改</button>
+        <a href="#/post?id=${postId}" class="btn btn-outline btn-lg" style="margin-left:8px;">取消</a>
+      </div></div>`;
+    this.setContent(html);
+  },
+
+  async submitEditPost(postId) {
+    const board_id = parseInt(document.getElementById('post-board').value);
+    const title = document.getElementById('post-title').value.trim();
+    const content = document.getElementById('post-content').value.trim();
+    const reward_points = parseInt(document.getElementById('post-reward').value) || 0;
+    if (!title || !content) { this.toast('标题和内容不能为空', 'error'); return; }
+    const data = await this.api(`/api/posts/${postId}`, { method: 'PUT', body: { board_id, title, content, reward_points } });
+    if (data.ok) { this.toast('编辑成功！'); location.hash = `#/post?id=${postId}`; }
   },
 
   async pageLogin() {
@@ -787,7 +898,19 @@ const App = {
 
   search() {
     const q = document.getElementById('search-input').value.trim();
-    if (q) location.hash = `#/board?q=${encodeURIComponent(q)}`;
+    const cat = document.getElementById('search-category')?.value;
+    if (!q) return;
+    if (cat && cat !== 'all') {
+      location.hash = `#/board?id=${cat}&q=${encodeURIComponent(q)}`;
+    } else {
+      location.hash = `#/board?q=${encodeURIComponent(q)}`;
+    }
+  },
+
+  quickSearch(q) {
+    const input = document.getElementById('search-input');
+    if (input) input.value = q;
+    this.search();
   },
 
   // ===== Utilities =====
