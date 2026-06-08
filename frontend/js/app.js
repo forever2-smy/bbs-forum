@@ -879,7 +879,6 @@ const App = {
           <div class="profile-avatar-wrap">
             ${avatarHtml}
             ${u.role === 'admin' ? '<span class="profile-role-badge">管理员</span>' : ''}
-            ${u.role === 'moderator' ? '<span class="profile-role-badge mod">版主</span>' : ''}
           </div>
           <div class="info" style="flex:1;">
             <h2>${this.esc(u.username)} ${genderIcon}</h2>
@@ -1263,8 +1262,7 @@ const App = {
         <td>${u.id}</td><td>${u.username}</td><td>${u.email}</td>
         <td>
           <select onchange="App.changeRole(${u.id},this.value)" class="form-control" style="width:auto;padding:2px 6px;font-size:.8rem;" ${u.role==='admin'?'disabled':''}>
-            <option value="user" ${u.role==='user'?'selected':''}>用户</option>
-            <option value="moderator" ${u.role==='moderator'?'selected':''}>版主</option>
+            <option value="user" ${u.role!=='admin'?'selected':''}>用户</option>
             <option value="admin" ${u.role==='admin'?'selected':''}>管理员</option>
           </select>
         </td>

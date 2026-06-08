@@ -55,7 +55,7 @@ def change_role(user_id):
     user = User.query.get_or_404(user_id)
     data = request.get_json()
     new_role = data.get('role', 'user')
-    if new_role not in ('user', 'moderator', 'admin'):
+    if new_role not in ('user', 'admin'):
         return jsonify({'ok': False, 'msg': '无效角色'}), 400
     user.role = new_role
     db.session.commit()
