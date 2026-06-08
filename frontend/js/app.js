@@ -164,27 +164,27 @@ const App = {
   },
 
   async acceptFriendReq(reqId, btn) {
-    const data = await this.api(`/api/social/friend-accept/${reqId}`, { method: 'POST' });
+    const data = await App.api(`/api/social/friend-accept/${reqId}`, { method: 'POST' });
     if (data.ok) {
       btn.parentElement.innerHTML = '<span style="color:var(--success);font-size:.8rem;">✅ 已接受</span>';
-      this.toast('已添加好友');
-      this.renderNav();
+      App.toast('已添加好友');
+      App.renderNav();
     }
   },
 
   async rejectFriendReq(reqId, btn) {
-    const data = await this.api(`/api/social/friend-reject/${reqId}`, { method: 'POST' });
+    const data = await App.api(`/api/social/friend-reject/${reqId}`, { method: 'POST' });
     if (data.ok) {
       btn.parentElement.innerHTML = '<span style="color:var(--gray-400);font-size:.8rem;">已拒绝</span>';
-      this.toast('已拒绝好友请求');
-      this.renderNav();
+      App.toast('已拒绝好友请求');
+      App.renderNav();
     }
   },
 
   async readAllNotifs() {
-    await this.api('/api/users/notifications/read_all', { method: 'POST' });
-    this.toggleNotifPanel(new Event('click'));
-    this.renderNav();
+    await App.api('/api/users/notifications/read_all', { method: 'POST' });
+    App.toggleNotifPanel(new Event('click'));
+    App.renderNav();
   },
 
   async showMyPosts() {
@@ -1418,21 +1418,20 @@ const App = {
     if (!input) return;
     const content = input.value.trim();
     if (!content) return;
-    const data = await this.api(`/api/users/friend-chat/${friendId}/send`, { method: 'POST', body: { content } });
+    const data = await App.api(`/api/users/friend-chat/${friendId}/send`, { method: 'POST', body: { content } });
     if (data.ok) {
       input.value = '';
-      // 在聊天区域追加消息
       const chatArea = document.getElementById('friend-chat-area');
       const msgDiv = document.createElement('div');
       msgDiv.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:10px;';
       msgDiv.innerHTML = `<div style="max-width:70%;padding:8px 14px;border-radius:14px 14px 4px 14px;background:var(--primary);color:#fff;font-size:.9rem;word-break:break-word;">
-        ${this.esc(content)}
+        ${App.esc(content)}
         <div style="font-size:.7rem;margin-top:2px;color:rgba(255,255,255,.7);">刚刚</div>
       </div>`;
       chatArea.appendChild(msgDiv);
       chatArea.scrollTop = chatArea.scrollHeight;
     } else {
-      this.toast(data.msg || '发送失败', 'error');
+      App.toast(data.msg || '发送失败', 'error');
     }
   },
 
@@ -1751,3 +1750,5 @@ const App = {
 };
 
 document.addEventListener('DOMContentLoaded', () => App.init());
+
+window.App = App;
