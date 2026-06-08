@@ -80,10 +80,16 @@ def like_dynamic(dynamic_id):
     if existing:
         db.session.delete(existing)
         d.like_count = max(0, (d.like_count or 0) - 1)
+        # 取消点赞扣 1 分
+        if d.author_id != current_user.id and d.author:
+            d.author.points = max(0, (d.author.points or 0) - 1)
         db.session.commit()
         return jsonify({'ok': True, 'liked': False, 'like_count': d.like_count})
     like = DynamicLike(user_id=current_user.id, dynamic_id=dynamic_id)
     d.like_count = (d.like_count or 0) + 1
+    # 点赞给动态作者加 1 积分（不给自己）
+    if d.author_id != current_user.id and d.author:
+        d.author.points = (d.author.points or 0) + 1
     db.session.add(like)
     db.session.commit()
     return jsonify({'ok': True, 'liked': True, 'like_count': d.like_count})
@@ -120,6 +126,10 @@ def create_comment(dynamic_id):
         return jsonify({'ok': False, 'msg': '评论不能为空'}), 400
     c = DynamicComment(dynamic_id=dynamic_id, author_id=current_user.id, content=content)
     d.comment_count = (d.comment_count or 0) + 1
+    # 评论者获得 1 积分，动态作者获得 1 积分（不给自己评论）
+    current_user.points = (current_user.points or 0) + 1
+    if d.author_id != current_user.id and d.author:
+        d.author.points = (d.author.points or 0) + 1
     db.session.add(c)
     db.session.commit()
     return jsonify({'ok': True, 'comment_id': c.id})

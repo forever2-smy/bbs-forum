@@ -536,24 +536,34 @@ const App = {
     const { params } = this.getParams();
     const boardId = params.get('id');
     const page = params.get('page') || 1;
-    const boardRes = await this.api(`/api/boards/${boardId}`);
-    const postsRes = await this.api(`/api/posts?board_id=${boardId}&page=${page}`);
+    const q = params.get('q') || '';
+    // 搜索模式下允许无板块ID（全站搜索）
+    let boardRes = { board: null };
+    if (boardId) boardRes = await this.api(`/api/boards/${boardId}`);
+    let apiUrl = `/api/posts?page=${page}`;
+    if (boardId) apiUrl += `&board_id=${boardId}`;
+    if (q) apiUrl += `&q=${encodeURIComponent(q)}`;
+    const postsRes = await this.api(apiUrl);
     if (!postsRes.ok) return;
     const board = boardRes.board;
     const posts = postsRes.posts;
+    let titleText = board ? `${board.icon} ${board.name}` : '搜索结果';
+    let descText = board ? board.description : '';
+    if (q) titleText += ` — 搜索 "${this.esc(q)}"`;
     let html = `
       <div class="breadcrumb-nav">
         <a href="#/">首页</a><span class="sep">/</span>
-        <span>${board ? board.name : ''}</span>
+        ${board ? `<a href="#/board?id=${boardId}">${board.name}</a><span class="sep">/</span>` : ''}
+        <span>${q ? `搜索: ${this.esc(q)}` : (board ? board.name : '搜索结果')}</span>
       </div>
-      <div class="section-title">${board ? board.icon : ''} ${board ? board.name : '板块'}</div>
-      <p style="color:var(--gray-500);margin-bottom:16px;">${board ? board.description : ''}</p>`;
-    if (this.user) {
+      <div class="section-title">${titleText}</div>
+      <p style="color:var(--gray-500);margin-bottom:16px;">${descText}</p>`;
+    if (this.user && boardId) {
       html += `<a href="#/new-post?board_id=${boardId}" class="btn btn-primary btn-sm mb-2">✏️ 发帖</a>`;
     }
     html += '<div class="card">';
     if (posts.length === 0) {
-      html += '<div class="empty-state"><div class="icon">📭</div><p>暂无帖子，快来发布第一篇吧！</p></div>';
+      html += `<div class="empty-state"><div class="icon">📭</div><p>${q ? `没有找到关于"${this.esc(q)}"的帖子` : '暂无帖子，快来发布第一篇吧！'}</p></div>`;
     }
     for (const p of posts) {
       html += `

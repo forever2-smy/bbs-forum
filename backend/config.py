@@ -14,11 +14,12 @@ class Config:
             _db_url = _db_url.replace('mysql://', 'mysql+pymysql://', 1)
         import pymysql
         pymysql.install_as_MySQLdb()
-        # Railway MySQL 强制要求 SSL
+        # Railway MySQL 使用自签名证书，跳过证书验证
         _engine_options = {
             'connect_args': {
                 'ssl': {
-                    'ca': '/etc/ssl/certs/ca-certificates.crt'
+                    'verify_cert': False,
+                    'check_hostname': False
                 }
             }
         }

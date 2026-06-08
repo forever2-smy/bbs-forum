@@ -130,6 +130,9 @@ def toggle_essence(post_id):
 def like_post(post_id):
     post = Post.query.get_or_404(post_id)
     post.like_count = (post.like_count or 0) + 1
+    # 给帖主加 2 积分（不给自己点赞）
+    if post.author_id != current_user.id and post.author:
+        post.author.points = (post.author.points or 0) + 2
     db.session.commit()
     return jsonify({'ok': True, 'like_count': post.like_count})
 
@@ -137,13 +140,20 @@ def like_post(post_id):
 @post_bp.route('/<int:post_id>/favorite', methods=['POST'])
 @login_required
 def toggle_favorite(post_id):
+    post = Post.query.get_or_404(post_id)
     fav = Favorite.query.filter_by(user_id=current_user.id, post_id=post_id).first()
     if fav:
         db.session.delete(fav)
+        # 取消收藏扣 1 分（不低于 0）
+        if post.author_id != current_user.id and post.author:
+            post.author.points = max(0, (post.author.points or 0) - 1)
         db.session.commit()
         return jsonify({'ok': True, 'favorited': False})
     fav = Favorite(user_id=current_user.id, post_id=post_id)
     db.session.add(fav)
+    # 收藏给帖主加 1 积分（不给自己收藏）
+    if post.author_id != current_user.id and post.author:
+        post.author.points = (post.author.points or 0) + 1
     db.session.commit()
     return jsonify({'ok': True, 'favorited': True})
 
@@ -163,6 +173,10 @@ def create_reply(post_id):
 
     reply = Reply(post_id=post_id, author_id=current_user.id, content=content)
     post.reply_count = (post.reply_count or 0) + 1
+    # 回复者获得 1 积分，帖主获得 2 积分（不给自己回复）
+    current_user.points = (current_user.points or 0) + 1
+    if post.author_id != current_user.id and post.author:
+        post.author.points = (post.author.points or 0) + 2
     db.session.add(reply)
     db.session.commit()
     return jsonify({'ok': True, 'reply_id': reply.id})

@@ -169,6 +169,9 @@ def create_repost():
     post = Post.query.get_or_404(post_id)
     r = Repost(user_id=current_user.id, post_id=post_id, comment=comment)
     db.session.add(r)
+    # 转发给帖主加 1 积分（不给自己转发）
+    if post.author_id != current_user.id and post.author:
+        post.author.points = (post.author.points or 0) + 1
     db.session.commit()
     return jsonify({'ok': True, 'repost_id': r.id})
 
