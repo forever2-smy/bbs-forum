@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
-from ..models import db, Board, Post, Reply, Favorite
+from ..models import db, Board, Post, Reply, Favorite, User
 from datetime import datetime
 
 post_bp = Blueprint('post', __name__, url_prefix='/api/posts')
@@ -40,7 +40,19 @@ def get_post(post_id):
     post.view_count = (post.view_count or 0) + 1
     db.session.commit()
 
-    replies = post.replies_list.order_by(Reply.created_at.asc()).all()
+    # 回复分页（只分页顶层回复，楼中楼跟着父回复）
+    page = request.args.get('reply_page', 1, type=int)
+    per_page = request.args.get('reply_per_page', 5, type=int)
+    top_replies_query = post.replies_list.filter_by(parent_id=None).order_by(Reply.created_at.asc())
+    replies_pagination = top_replies_query.paginate(page=page, per_page=per_page, error_out=False)
+
+    # 组装回复列表：顶层回复 + 其子回复
+    all_replies = []
+    for r in replies_pagination.items:
+        all_replies.append(r)
+        children = Reply.query.filter_by(parent_id=r.id).order_by(Reply.created_at.asc()).all()
+        all_replies.extend(children)
+
     is_fav = False
     if current_user.is_authenticated:
         is_fav = Favorite.query.filter_by(user_id=current_user.id, post_id=post_id).first() is not None
@@ -48,7 +60,10 @@ def get_post(post_id):
     return jsonify({
         'ok': True,
         'post': post.to_dict(include_content=True),
-        'replies': [r.to_dict() for r in replies],
+        'replies': [r.to_dict() for r in all_replies],
+        'replies_total': replies_pagination.total,
+        'replies_pages': replies_pagination.pages,
+        'replies_page': page,
         'is_fav': is_fav,
     })
 
@@ -168,14 +183,29 @@ def create_reply(post_id):
         return jsonify({'ok': False, 'msg': '账号已被封禁'}), 403
     data = request.get_json()
     content = (data.get('content') or '').strip()
+    parent_id = data.get('parent_id') or None
     if not content:
         return jsonify({'ok': False, 'msg': '回复内容不能为空'}), 400
 
-    reply = Reply(post_id=post_id, author_id=current_user.id, content=content)
+    # 楼中楼：找出被回复的用户
+    reply_to_id = None
+    if parent_id:
+        parent = Reply.query.get(parent_id)
+        if parent:
+            reply_to_id = parent.author_id
+
+    reply = Reply(post_id=post_id, author_id=current_user.id, content=content,
+                  parent_id=parent_id, reply_to_id=reply_to_id)
     post.reply_count = (post.reply_count or 0) + 1
-    # 回复者获得 1 积分，帖主获得 2 积分（不给自己回复）
+    # 积分规则
     current_user.points = (current_user.points or 0) + 1
-    if post.author_id != current_user.id and post.author:
+    if parent_id and reply_to_id and reply_to_id != current_user.id:
+        # 楼中楼回复：被回复者 +1 积分
+        author = User.query.get(reply_to_id)
+        if author:
+            author.points = (author.points or 0) + 1
+    elif not parent_id and post.author_id != current_user.id and post.author:
+        # 直接回复帖子：帖主 +2 积分
         post.author.points = (post.author.points or 0) + 2
     db.session.add(reply)
     db.session.commit()

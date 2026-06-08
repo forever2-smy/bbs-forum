@@ -27,7 +27,7 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     posts = db.relationship('Post', backref='author', lazy='dynamic')
-    replies = db.relationship('Reply', backref='author', lazy='dynamic')
+    replies = db.relationship('Reply', backref='author', lazy='dynamic', foreign_keys='Reply.author_id')
 
     @property
     def is_admin(self):
@@ -156,7 +156,14 @@ class Reply(db.Model):
     content = db.Column(db.Text, nullable=False)
     like_count = db.Column(db.Integer, default=0)
     is_accepted = db.Column(db.Boolean, default=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('replies.id'), nullable=True)  # 楼中楼：回复某条回复
+    reply_to_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)   # 被回复的用户ID
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # 自引用关系
+    children = db.relationship('Reply', backref=db.backref('parent', remote_side=[id]), lazy='dynamic')
+    # 被回复的用户关系
+    reply_to = db.relationship('User', foreign_keys=[reply_to_id])
 
     def to_dict(self):
         return {
@@ -166,6 +173,9 @@ class Reply(db.Model):
             'content': self.content,
             'like_count': self.like_count or 0,
             'is_accepted': self.is_accepted,
+            'parent_id': self.parent_id,
+            'reply_to_id': self.reply_to_id,
+            'reply_to_name': self.reply_to.username if self.reply_to else '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 

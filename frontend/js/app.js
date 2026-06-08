@@ -691,6 +691,7 @@ const App = {
     const data = await this.api(`/api/posts/${postId}`);
     if (!data.ok) return;
     const p = data.post;
+    App._curPost = p;
     const replies = data.replies;
     // 获取转发列表
     const repostData = await this.api(`/api/social/reposts/${postId}`);
@@ -754,45 +755,182 @@ const App = {
       ` : ''}
 
       <div class="section-title">💬 回复 (${p.reply_count})</div>
-      <div class="card mb-3">`;
+      <div id="reply-area"><p style="text-align:center;padding:20px;color:var(--gray-400);">加载回复中...</p></div>`;
+    // 加载第一页回复（传入 p 对象供 renderOneReply 使用）
+    this.setContent(html);
+    await this.loadReplies(p.id, 1, p);
+  },
+
+  async loadReplies(postId, page, post) {
+    App._replyPage = page;  // 存储当前页码
+    const data = await this.api(`/api/posts/${postId}?reply_page=${page}&reply_per_page=5`);
+    if (!data.ok) return;
+    const replies = data.replies || [];
+    const total = data.replies_total || 0;
+    const pages = data.replies_pages || 1;
+    const curPage = data.replies_page || 1;
+
+    let html = '<div id="reply-area"><div class="card mb-3">';
     if (replies.length === 0) {
       html += '<div class="empty-state" style="padding:24px;"><p>暂无回复</p></div>';
     }
+    // 构建楼中楼映射：parent_id -> children
+    const replyMap = {};
+    const topReplies = [];
     for (const r of replies) {
-      html += `
-        <div class="reply-item ${r.is_accepted ? 'accepted' : ''}">
-          <div class="reply-header">
-            <div class="reply-author">
-              <span class="post-avatar reply-avatar-click" style="width:28px;height:28px;font-size:11px;cursor:pointer;" onclick="App.showUserCard(${r.author_id}, event)">${r.author_name[0]}</span>
-              <a href="#/profile/${r.author_id}">${r.author_name}</a>
-              ${r.is_accepted ? '<span class="badge badge-reward">已采纳</span>' : ''}
-            </div>
-            <span style="color:var(--gray-400);font-size:.8rem;">${this.timeAgo(r.created_at)}</span>
-          </div>
-          <div class="reply-content">${this.esc(r.content)}</div>
-          <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
-            ${this.user && p.reward_points > 0 && p.author_id === this.user.id && !r.is_accepted ? `
-              <button class="btn btn-sm btn-success" onclick="App.acceptReply(${r.id})">✅ 采纳 (${p.reward_points}分)</button>
-            ` : ''}
-            ${this.user && (this.user.id === r.author_id || this.user.role === 'admin') ? `
-              <button class="btn btn-sm btn-outline" style="color:var(--danger);font-size:.75rem;padding:2px 8px;" onclick="App.deleteReply(${r.id}, ${p.id})">🗑 删除</button>
-            ` : ''}
-          </div>
-        </div>`;
+      if (r.parent_id) {
+        if (!replyMap[r.parent_id]) replyMap[r.parent_id] = [];
+        replyMap[r.parent_id].push(r);
+      } else {
+        topReplies.push(r);
+      }
+    }
+    // 渲染顶层回复
+    for (const r of topReplies) {
+      html += this.renderOneReply(r, replyMap, postId, post);
     }
     html += '</div>';
 
+    // 分页控件
+    if (pages > 1) {
+      html += '<div style="display:flex;justify-content:center;gap:4px;padding:12px;">';
+      if (curPage > 1) {
+        html += `<button class="btn btn-sm btn-outline" onclick="App.loadReplies(${postId}, ${curPage - 1}, App._curPost)">上一页</button>`;
+      }
+      for (let i = 1; i <= pages; i++) {
+        if (i === curPage) {
+          html += `<span class="btn btn-sm btn-primary" style="cursor:default;">${i}</span>`;
+        } else if (Math.abs(i - curPage) <= 2 || i === 1 || i === pages) {
+          html += `<button class="btn btn-sm btn-outline" onclick="App.loadReplies(${postId}, ${i}, App._curPost)">${i}</button>`;
+        } else if (Math.abs(i - curPage) === 3) {
+          html += '<span style="padding:0 4px;color:var(--gray-400);">...</span>';
+        }
+      }
+      if (curPage < pages) {
+        html += `<button class="btn btn-sm btn-outline" onclick="App.loadReplies(${postId}, ${curPage + 1}, App._curPost)">下一页</button>`;
+      }
+      html += '</div>';
+    }
+
+    // 发表回复框
     if (this.user) {
       html += `
         <div class="card mb-3">
           <div class="card-body">
             <h4 style="font-size:1rem;font-weight:700;margin-bottom:12px;">发表回复</h4>
             <textarea id="reply-content" class="form-control" rows="4" placeholder="写下你的回复..."></textarea>
-            <button class="btn btn-primary mt-2" onclick="App.submitReply(${p.id})">发送回复</button>
+            <button class="btn btn-primary mt-2" onclick="App.submitReply(${postId})">发送回复</button>
           </div>
         </div>`;
     }
-    this.setContent(html);
+
+    html += '</div>';  // 关闭 #reply-area
+
+    const area = document.getElementById('reply-area');
+    if (area) area.outerHTML = html;
+  },
+
+  renderOneReply(r, replyMap, postId, post) {
+    // r: 回复对象, replyMap: parent_id->children, postId: 帖子ID, post: 帖子对象
+    const children = replyMap[r.id] || [];
+    const p = post || App._curPost || {};
+    let html = `
+      <div class="reply-item ${r.is_accepted ? 'accepted' : ''}" id="reply-${r.id}">
+        <div class="reply-header">
+          <div class="reply-author">
+            <span class="post-avatar reply-avatar-click" style="width:28px;height:28px;font-size:11px;cursor:pointer;" onclick="App.showUserCard(${r.author_id}, event)">${r.author_name[0]}</span>
+            <a href="#/profile/${r.author_id}">${r.author_name}</a>
+            ${r.reply_to_name ? `<span style="color:var(--gray-500);font-size:.8rem;margin-left:4px;">回复 <a href="#/profile/${r.reply_to_id}" style="color:var(--primary);">@${r.reply_to_name}</a></span>` : ''}
+            ${r.is_accepted ? '<span class="badge badge-reward">已采纳</span>' : ''}
+          </div>
+          <span style="color:var(--gray-400);font-size:.8rem;">${this.timeAgo(r.created_at)}</span>
+        </div>
+        <div class="reply-content">${this.esc(r.content)}</div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap;">
+          ${this.user && this.user.id !== r.author_id ? `
+            <button class="btn btn-sm btn-outline" style="font-size:.75rem;padding:2px 8px;" onclick="App.toggleReplyBox(${r.id}, '${this.esc(r.author_name).replace(/'/g, "\\'")}')">💬 回复</button>
+          ` : ''}
+          ${this.user && p.reward_points > 0 && p.author_id === this.user.id && !r.is_accepted ? `
+            <button class="btn btn-sm btn-success" onclick="App.acceptReply(${r.id}, ${postId})">✅ 采纳 (${p.reward_points}分)</button>
+          ` : ''}
+          ${this.user && (this.user.id === r.author_id || this.user.role === 'admin') ? `
+            <button class="btn btn-sm btn-outline" style="color:var(--danger);font-size:.75rem;padding:2px 8px;" onclick="App.deleteReply(${r.id}, ${postId})">🗑 删除</button>
+          ` : ''}
+        </div>`;
+    // 楼中楼子回复
+    if (children.length > 0) {
+      html += `<div style="margin-left:32px;border-left:2px solid var(--gray-200);padding-left:12px;margin-top:6px;">`;
+      for (const c of children) {
+        html += `
+          <div class="reply-item" style="padding:8px 0;border-bottom:1px solid var(--gray-50);">
+            <div class="reply-header">
+              <div class="reply-author" style="font-size:.85rem;">
+                <span class="post-avatar reply-avatar-click" style="width:24px;height:24px;font-size:10px;cursor:pointer;" onclick="App.showUserCard(${c.author_id}, event)">${c.author_name[0]}</span>
+                <a href="#/profile/${c.author_id}">${c.author_name}</a>
+                ${c.reply_to_name ? `<span style="color:var(--gray-500);font-size:.75rem;margin-left:4px;">回复 <a href="#/profile/${c.reply_to_id}" style="color:var(--primary);">@${c.reply_to_name}</a></span>` : ''}
+              </div>
+              <span style="color:var(--gray-400);font-size:.75rem;">${this.timeAgo(c.created_at)}</span>
+            </div>
+            <div class="reply-content" style="font-size:.9rem;">${this.esc(c.content)}</div>
+            <div style="margin-top:2px;">
+              ${this.user && this.user.id !== c.author_id ? `
+                <button class="btn btn-sm btn-outline" style="font-size:.7rem;padding:1px 6px;" onclick="App.toggleReplyBox(${c.id}, '${this.esc(c.author_name).replace(/'/g, "\\'")}')">💬 回复</button>
+              ` : ''}
+            </div>
+          </div>`;
+      }
+      html += '</div>';
+    }
+    // 回复框（默认隐藏）——顶层回复和楼中楼子回复都有
+    html += `<div id="reply-box-${r.id}" style="display:none;margin-top:8px;padding:8px;background:var(--gray-50);border-radius:8px;">
+      <textarea id="reply-input-${r.id}" class="form-control" rows="2" placeholder="回复 ${r.author_name}..." style="font-size:.9rem;"></textarea>
+      <div style="display:flex;gap:6px;margin-top:6px;">
+        <button class="btn btn-sm btn-primary" onclick="App.submitReplyToReply(${postId}, ${r.id})">发送</button>
+        <button class="btn btn-sm btn-outline" onclick="App.toggleReplyBox(${r.id}, '')">取消</button>
+      </div>
+    </div>`;
+    // 楼中楼子回复的回复框
+    for (const c of children) {
+      html += `<div id="reply-box-${c.id}" style="display:none;margin-top:4px;padding:6px;background:var(--gray-50);border-radius:6px;margin-left:32px;">
+        <textarea id="reply-input-${c.id}" class="form-control" rows="2" placeholder="回复 ${c.author_name}..." style="font-size:.85rem;"></textarea>
+        <div style="display:flex;gap:6px;margin-top:4px;">
+          <button class="btn btn-sm btn-primary" onclick="App.submitReplyToReply(${postId}, ${c.id})">发送</button>
+          <button class="btn btn-sm btn-outline" onclick="App.toggleReplyBox(${c.id}, '')">取消</button>
+        </div>
+      </div>`;
+    }
+    html += '</div>';
+    return html;
+  },
+
+  toggleReplyBox(replyId, authorName) {
+    const box = document.getElementById(`reply-box-${replyId}`);
+    if (!box) return;
+    if (box.style.display === 'none') {
+      box.style.display = '';
+      const input = document.getElementById(`reply-input-${replyId}`);
+      if (input) input.focus();
+    } else {
+      box.style.display = 'none';
+    }
+  },
+
+  async submitReplyToReply(postId, parentId) {
+    const input = document.getElementById(`reply-input-${parentId}`);
+    if (!input) return;
+    const content = input.value.trim();
+    if (!content) { this.toast('请输入回复内容', 'error'); return; }
+    const data = await this.api(`/api/posts/${postId}/replies`, {
+      method: 'POST',
+      body: { content, parent_id: parentId }
+    });
+    if (data.ok) {
+      this.toast('回复成功！');
+      // 重新加载当前页回复
+      await this.loadReplies(postId, App._replyPage || 1, App._curPost);
+    } else {
+      this.toast(data.msg || '回复失败', 'error');
+    }
   },
 
   async pageNewPost() {
@@ -1655,10 +1793,10 @@ const App = {
     if (data.ok) { this.toast('已删除'); location.hash = '#/'; }
   },
 
-  async acceptReply(id) {
+  async acceptReply(id, postId) {
     if (!confirm('采纳此回复？积分将奖励给对方')) return;
     const data = await this.api(`/api/posts/replies/${id}/accept`, { method: 'POST' });
-    if (data.ok) { this.toast(`采纳成功！奖励 ${data.rewarded} 积分`); this.route(); }
+    if (data.ok) { this.toast(`采纳成功！奖励 ${data.rewarded} 积分`); this.pagePost(); }
   },
 
   async deleteReply(replyId, postId) {
