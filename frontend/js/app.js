@@ -1237,10 +1237,10 @@ const App = {
     let html = `
       <div class="section-title">⚙️ 后台管理（超级管理员）</div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;">
-        <div class="stat-card bg-primary"><h3>${dash.user_count || 0}</h3><p>注册用户</p></div>
-        <div class="stat-card bg-success"><h3>${dash.post_count || 0}</h3><p>帖子总数</p></div>
-        <div class="stat-card bg-accent"><h3>${dash.board_count || 0}</h3><p>板块数量</p></div>
-        <div class="stat-card" style="background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;"><h3>${dynamicsRes.total || 0}</h3><p>动态总数</p></div>
+        <div class="stat-card bg-primary" onclick="App.adminTab('users')" style="cursor:pointer;"><h3>${dash.user_count || 0}</h3><p>注册用户</p></div>
+        <div class="stat-card bg-success" onclick="App.adminTab('posts')" style="cursor:pointer;"><h3>${dash.post_count || 0}</h3><p>帖子总数</p></div>
+        <div class="stat-card bg-accent" onclick="App.adminTab('boards')" style="cursor:pointer;"><h3>${dash.board_count || 0}</h3><p>板块数量</p></div>
+        <div class="stat-card" onclick="App.adminTab('dynamics')" style="background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;cursor:pointer;"><h3>${dynamicsRes.total || 0}</h3><p>动态总数</p></div>
       </div>
 
       <!-- 管理标签页 -->
