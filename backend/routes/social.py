@@ -167,6 +167,24 @@ def get_friend_requests():
     return jsonify({'ok': True, 'requests': result})
 
 
+@social_bp.route('/friend-requests/sent', methods=['GET'])
+@login_required
+def get_sent_friend_requests():
+    """获取当前用户已发出但还未被接受的好友申请"""
+    requests_q = Friend.query.filter_by(user_id=current_user.id, status='pending').order_by(
+        Friend.created_at.desc()).all()
+    result = []
+    for f in requests_q:
+        result.append({
+            'id': f.id,
+            'friend_id': f.friend_id,
+            'friend_name': f.friend_user.username if f.friend_user else '',
+            'friend_avatar': f.friend_user.avatar if f.friend_user else '',
+            'created_at': f.created_at.isoformat() if f.created_at else None,
+        })
+    return jsonify({'ok': True, 'requests': result})
+
+
 @social_bp.route('/is-friend/<int:user_id>', methods=['GET'])
 @login_required
 def is_friend(user_id):

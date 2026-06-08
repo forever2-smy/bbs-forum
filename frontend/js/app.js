@@ -62,8 +62,9 @@ const App = {
             </div>
             <a href="#/profile/${this.user.id}">👤 个人主页</a>
             <a href="#/dynamics">🌐 动态</a>
+            <a href="#/friend-requests">🤝 好友申请${friendReqCount ? ` <span style="color:var(--danger);font-weight:700;">(${friendReqCount}条待处理)</span>` : ''}</a>
             <a href="#/messages">✉️ 私信${unread ? ` <span style="color:var(--danger);font-weight:700;">(${unread})</span>` : ''}</a>
-            <a href="#/friend-chat">💬 好友私信${friendReqCount ? ` <span style="color:var(--danger);font-weight:700;">(${friendReqCount})</span>` : ''}</a>
+            <a href="#/friend-chat">💬 好友私信</a>
             <a href="javascript:void(0)" onclick="App.showMyPosts()">📝 我的帖子</a>
             <a href="javascript:void(0)" onclick="App.showMyFavs()">⭐ 我的收藏</a>
             ${this.user.role === 'admin' ? '<a href="#/admin">⚙️ 管理后台</a>' : ''}
@@ -71,6 +72,9 @@ const App = {
             <a href="javascript:void(0)" onclick="App.logout()" style="color: var(--danger);">🚪 退出登录</a>
           </div>
         </div>
+        <a href="#/friend-requests" style="position:relative;cursor:pointer;margin-right:8px;font-size:1.2rem;line-height:1;color:inherit;text-decoration:none;" title="好友申请">
+          🤝${friendReqCount ? `<span style="position:absolute;top:-6px;right:-8px;background:var(--danger);color:#fff;font-size:.65rem;border-radius:50%;min-width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-weight:700;">${friendReqCount > 9 ? '9+' : friendReqCount}</span>` : ''}
+        </a>
         <div class="notif-bell" onclick="App.toggleNotifPanel(event)" style="position:relative;cursor:pointer;margin-right:8px;font-size:1.3rem;line-height:1;">
           🔔${notifCount ? `<span style="position:absolute;top:-6px;right:-8px;background:var(--danger);color:#fff;font-size:.65rem;border-radius:50%;min-width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-weight:700;">${notifCount > 9 ? '9+' : notifCount}</span>` : ''}
         </div>`;
@@ -127,7 +131,10 @@ const App = {
     const notifs = res.notifications || [];
     let html = `<div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;">
       <span style="font-weight:700;font-size:.95rem;">🔔 通知</span>
-      ${notifs.length ? '<a href="javascript:void(0)" onclick="App.readAllNotifs()" style="font-size:.8rem;color:var(--primary);">全部已读</a>' : ''}
+      <div style="display:flex;gap:10px;align-items:center;">
+        <a href="#/friend-requests" style="font-size:.8rem;color:var(--primary);" onclick="document.getElementById('notif-panel').style.display='none'">🤝 好友申请</a>
+        ${notifs.length ? '<a href="javascript:void(0)" onclick="App.readAllNotifs()" style="font-size:.8rem;color:var(--primary);">全部已读</a>' : ''}
+      </div>
     </div>`;
     if (!notifs.length) {
       html += '<div style="padding:24px;text-align:center;color:var(--gray-400);">暂无通知</div>';
@@ -226,6 +233,7 @@ const App = {
       '/profile': () => this.pageProfile(),
       '/messages': () => this.pageMessages(),
       '/friend-chat': () => this.pageFriendChat(),
+      '/friend-requests': () => this.pageFriendRequests(),
       '/admin': () => this.pageAdmin(),
       '/dynamics': () => this.pageDynamics(),
     };
@@ -1477,6 +1485,108 @@ const App = {
   },
 
   // ===== 好友私信 =====
+
+  async pageFriendRequests() {
+    if (!this.user) { location.hash = '#/login'; return; }
+    const res = await this.api('/api/social/friend-requests');
+    const requests = res.ok ? (res.requests || []) : [];
+
+    let html = `
+      <div class="breadcrumb-nav">
+        <a href="#/">首页</a><span class="sep">/</span>
+        <span>🤝 好友申请</span>
+      </div>
+      <div class="section-title" style="display:flex;align-items:center;gap:8px;">
+        🤝 好友申请
+        ${requests.length ? `<span style="background:var(--danger);color:#fff;font-size:.75rem;padding:2px 8px;border-radius:10px;">${requests.length}条待处理</span>` : ''}
+      </div>`;
+
+    if (!requests.length) {
+      html += `
+        <div class="card">
+          <div class="empty-state" style="padding:40px;text-align:center;">
+            <div style="font-size:3rem;margin-bottom:12px;">🤝</div>
+            <p style="color:var(--gray-400);font-size:1rem;">暂无待处理的好友申请</p>
+            <p style="color:var(--gray-400);font-size:.85rem;margin-top:4px;">去浏览用户主页，主动添加好友吧！</p>
+          </div>
+        </div>`;
+    } else {
+      for (const req of requests) {
+        html += `
+          <div class="card mb-2" style="transition:all .2s;" id="friend-req-${req.id}">
+            <div class="card-body" style="display:flex;align-items:center;gap:12px;padding:16px;">
+              <span class="post-avatar" style="width:44px;height:44px;font-size:16px;cursor:pointer;flex-shrink:0;" onclick="App.showUserCard(${req.user_id}, event)">${(req.username || '?')[0]}</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:700;font-size:1rem;">
+                  <a href="#/profile/${req.user_id}" style="color:var(--dark);">${this.esc(req.username)}</a>
+                </div>
+                <div style="font-size:.8rem;color:var(--gray-400);margin-top:2px;">${this.timeAgo(req.created_at)}</div>
+              </div>
+              <div style="display:flex;gap:8px;flex-shrink:0;" id="friend-req-actions-${req.id}">
+                <button class="btn btn-primary" onclick="App.acceptFriendReqPage(${req.id})" style="padding:6px 20px;">✅ 接受</button>
+                <button class="btn btn-outline" onclick="App.rejectFriendReqPage(${req.id})" style="padding:6px 20px;color:var(--danger);">❌ 拒绝</button>
+              </div>
+            </div>
+          </div>`;
+      }
+    }
+
+    // 已发出的好友申请
+    const sentRes = await this.api('/api/social/friend-requests/sent');
+    const sentReqs = sentRes.ok ? (sentRes.requests || []) : [];
+    if (sentReqs.length) {
+      html += `
+        <div class="section-title" style="margin-top:24px;">📤 已发出的申请</div>`;
+      for (const req of sentReqs) {
+        html += `
+          <div class="card mb-2">
+            <div class="card-body" style="display:flex;align-items:center;gap:12px;padding:16px;">
+              <span class="post-avatar" style="width:44px;height:44px;font-size:16px;cursor:pointer;" onclick="App.showUserCard(${req.friend_id}, event)">${(req.friend_name || '?')[0]}</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:700;font-size:1rem;">
+                  <a href="#/profile/${req.friend_id}" style="color:var(--dark);">${this.esc(req.friend_name)}</a>
+                </div>
+                <div style="font-size:.8rem;color:var(--gray-400);margin-top:2px;">${this.timeAgo(req.created_at)}</div>
+              </div>
+              <span style="font-size:.8rem;color:var(--warning);font-weight:600;padding:4px 12px;background:#fffbeb;border-radius:var(--radius-sm);">⏳ 等待对方确认</span>
+            </div>
+          </div>`;
+      }
+    }
+
+    this.setContent(html);
+  },
+
+  async acceptFriendReqPage(reqId) {
+    const data = await App.api(`/api/social/friend-accept/${reqId}`, { method: 'POST' });
+    if (data.ok) {
+      const card = document.getElementById(`friend-req-${reqId}`);
+      if (card) {
+        const actions = document.getElementById(`friend-req-actions-${reqId}`);
+        if (actions) actions.innerHTML = '<span style="color:var(--success);font-weight:600;">✅ 已接受</span>';
+      }
+      App.toast('已添加好友');
+      App.renderNav();
+    } else {
+      App.toast(data.msg || '操作失败', 'error');
+    }
+  },
+
+  async rejectFriendReqPage(reqId) {
+    const data = await App.api(`/api/social/friend-reject/${reqId}`, { method: 'POST' });
+    if (data.ok) {
+      const card = document.getElementById(`friend-req-${reqId}`);
+      if (card) {
+        card.style.opacity = '0.5';
+        const actions = document.getElementById(`friend-req-actions-${reqId}`);
+        if (actions) actions.innerHTML = '<span style="color:var(--gray-400);">已拒绝</span>';
+      }
+      App.toast('已拒绝好友请求');
+      App.renderNav();
+    } else {
+      App.toast(data.msg || '操作失败', 'error');
+    }
+  },
 
   async pageFriendChat() {
     if (!this.user) { location.hash = '#/login'; return; }
