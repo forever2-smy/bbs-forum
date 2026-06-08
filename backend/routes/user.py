@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
-from ..models import db, User, Post, Reply, Favorite, Message, Follow, Friend, Dynamic
+from ..models import db, User, Post, Reply, Favorite, Message, Follow, Friend, Dynamic, Notification
 from sqlalchemy import or_, and_
 
 user_bp = Blueprint('user', __name__, url_prefix='/api/users')
@@ -208,8 +208,10 @@ def read_message(msg_id):
 @user_bp.route('/unread_count', methods=['GET'])
 @login_required
 def unread_count():
-    count = Message.query.filter_by(receiver_id=current_user.id, is_read=False).count()
-    return jsonify({'ok': True, 'count': count})
+    msg_count = Message.query.filter_by(receiver_id=current_user.id, is_read=False).count()
+    notif_count = Notification.query.filter_by(user_id=current_user.id, is_read=False).count()
+    friend_req_count = Friend.query.filter_by(friend_id=current_user.id, status='pending').count()
+    return jsonify({'ok': True, 'count': msg_count, 'notif_count': notif_count, 'friend_req_count': friend_req_count})
 
 
 @user_bp.route('/active', methods=['GET'])
@@ -225,3 +227,94 @@ def active_users():
             'post_count': u.posts.filter_by(status='normal').count(),
         } for u in users],
     })
+
+
+# ===== 通知 =====
+
+@user_bp.route('/notifications', methods=['GET'])
+@login_required
+def get_notifications():
+    notifs = Notification.query.filter_by(user_id=current_user.id).order_by(
+        Notification.created_at.desc()).limit(30).all()
+    return jsonify({'ok': True, 'notifications': [n.to_dict() for n in notifs]})
+
+
+@user_bp.route('/notifications/<int:notif_id>/read', methods=['POST'])
+@login_required
+def read_notification(notif_id):
+    notif = Notification.query.get_or_404(notif_id)
+    if notif.user_id != current_user.id:
+        return jsonify({'ok': False, 'msg': '无权操作'}), 403
+    notif.is_read = True
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@user_bp.route('/notifications/read_all', methods=['POST'])
+@login_required
+def read_all_notifications():
+    Notification.query.filter_by(user_id=current_user.id, is_read=False).update({'is_read': True})
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ===== 好友私信 =====
+
+@user_bp.route('/friend-chat/<int:friend_id>', methods=['GET'])
+@login_required
+def friend_chat_history(friend_id):
+    """获取与某个好友的私信历史"""
+    # 验证是否是好友
+    is_friend = Friend.query.filter(
+        or_(
+            and_(Friend.user_id == current_user.id, Friend.friend_id == friend_id),
+            and_(Friend.user_id == friend_id, Friend.friend_id == current_user.id)
+        ),
+        Friend.status == 'accepted'
+    ).first()
+    if not is_friend:
+        return jsonify({'ok': False, 'msg': '不是好友，无法使用好友私信'}), 403
+    friend_user = User.query.get_or_404(friend_id)
+    messages = Message.query.filter(
+        or_(
+            and_(Message.sender_id == current_user.id, Message.receiver_id == friend_id),
+            and_(Message.sender_id == friend_id, Message.receiver_id == current_user.id)
+        )
+    ).order_by(Message.created_at.asc()).limit(100).all()
+    # 标记对方发的消息为已读
+    unread = Message.query.filter_by(sender_id=friend_id, receiver_id=current_user.id, is_read=False).all()
+    for m in unread:
+        m.is_read = True
+    db.session.commit()
+    return jsonify({
+        'ok': True,
+        'friend': {
+            'id': friend_user.id, 'username': friend_user.username,
+            'avatar': friend_user.avatar, 'signature': friend_user.signature,
+        },
+        'messages': [m.to_dict() for m in messages],
+    })
+
+
+@user_bp.route('/friend-chat/<int:friend_id>/send', methods=['POST'])
+@login_required
+def friend_chat_send(friend_id):
+    """好友私信发送"""
+    # 验证是否是好友
+    is_friend = Friend.query.filter(
+        or_(
+            and_(Friend.user_id == current_user.id, Friend.friend_id == friend_id),
+            and_(Friend.user_id == friend_id, Friend.friend_id == current_user.id)
+        ),
+        Friend.status == 'accepted'
+    ).first()
+    if not is_friend:
+        return jsonify({'ok': False, 'msg': '不是好友，无法使用好友私信'}), 403
+    data = request.get_json()
+    content = (data.get('content') or '').strip()
+    if not content:
+        return jsonify({'ok': False, 'msg': '内容不能为空'}), 400
+    msg = Message(sender_id=current_user.id, receiver_id=friend_id, content=content, is_friend_msg=True)
+    db.session.add(msg)
+    db.session.commit()
+    return jsonify({'ok': True, 'message': msg.to_dict()})

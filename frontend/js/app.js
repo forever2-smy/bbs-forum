@@ -45,8 +45,11 @@ const App = {
     if (!nav) return;
     let userArea = '';
     if (this.user) {
-      const unreadRes = await this.api('/api/users/unread_count').catch(() => ({ count: 0 }));
+      const unreadRes = await this.api('/api/users/unread_count').catch(() => ({ count: 0, notif_count: 0, friend_req_count: 0 }));
       const unread = unreadRes.count || 0;
+      const notifCount = unreadRes.notif_count || 0;
+      const friendReqCount = unreadRes.friend_req_count || 0;
+      const totalBadge = unread + notifCount;
       userArea = `
         <div class="user-area" onclick="App.toggleUserDropdown(event)">
           <div class="avatar">${this.user.username[0]}</div>
@@ -60,12 +63,16 @@ const App = {
             <a href="#/profile/${this.user.id}">👤 个人主页</a>
             <a href="#/dynamics">🌐 动态</a>
             <a href="#/messages">✉️ 私信${unread ? ` <span style="color:var(--danger);font-weight:700;">(${unread})</span>` : ''}</a>
+            <a href="#/friend-chat">💬 好友私信${friendReqCount ? ` <span style="color:var(--danger);font-weight:700;">(${friendReqCount})</span>` : ''}</a>
             <a href="javascript:void(0)" onclick="App.showMyPosts()">📝 我的帖子</a>
             <a href="javascript:void(0)" onclick="App.showMyFavs()">⭐ 我的收藏</a>
             ${this.user.role === 'admin' ? '<a href="#/admin">⚙️ 管理后台</a>' : ''}
             <div style="border-top: 1px solid var(--gray-100); margin-top: 4px;"></div>
             <a href="javascript:void(0)" onclick="App.logout()" style="color: var(--danger);">🚪 退出登录</a>
           </div>
+        </div>
+        <div class="notif-bell" onclick="App.toggleNotifPanel(event)" style="position:relative;cursor:pointer;margin-right:8px;font-size:1.3rem;line-height:1;">
+          🔔${notifCount ? `<span style="position:absolute;top:-6px;right:-8px;background:var(--danger);color:#fff;font-size:.65rem;border-radius:50%;min-width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-weight:700;">${notifCount > 9 ? '9+' : notifCount}</span>` : ''}
         </div>`;
     } else {
       userArea = `
@@ -102,6 +109,84 @@ const App = {
     }
   },
 
+  async toggleNotifPanel(e) {
+    e.stopPropagation();
+    let panel = document.getElementById('notif-panel');
+    if (panel) {
+      panel.style.display = panel.style.display === 'none' ? '' : 'none';
+      return;
+    }
+    // 创建通知面板
+    panel = document.createElement('div');
+    panel.id = 'notif-panel';
+    panel.style.cssText = 'position:fixed;top:56px;right:16px;width:360px;max-height:420px;overflow-y:auto;background:#fff;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.15);z-index:9999;';
+    panel.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);">加载中...</div>';
+    document.body.appendChild(panel);
+    const res = await this.api('/api/users/notifications');
+    if (!res.ok) { panel.innerHTML = '<div style="padding:16px;text-align:center;color:var(--danger);">加载失败</div>'; return; }
+    const notifs = res.notifications || [];
+    let html = `<div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-weight:700;font-size:.95rem;">🔔 通知</span>
+      ${notifs.length ? '<a href="javascript:void(0)" onclick="App.readAllNotifs()" style="font-size:.8rem;color:var(--primary);">全部已读</a>' : ''}
+    </div>`;
+    if (!notifs.length) {
+      html += '<div style="padding:24px;text-align:center;color:var(--gray-400);">暂无通知</div>';
+    }
+    for (const n of notifs) {
+      const bgStyle = n.is_read ? '' : 'background:#fffbeb;';
+      const dotStyle = n.is_read ? '' : '<span style="color:var(--danger);font-size:.7rem;margin-right:4px;">●</span>';
+      let actionHtml = '';
+      if (n.type === 'friend_request') {
+        actionHtml = `<div style="margin-top:6px;display:flex;gap:6px;">
+          <button class="btn btn-sm btn-primary" onclick="App.acceptFriendReq(${n.ref_id},this)" style="padding:2px 12px;font-size:.75rem;">接受</button>
+          <button class="btn btn-sm btn-outline" onclick="App.rejectFriendReq(${n.ref_id},this)" style="padding:2px 12px;font-size:.75rem;">拒绝</button>
+        </div>`;
+      } else if (n.type === 'friend_accepted') {
+        actionHtml = `<div style="margin-top:4px;"><a href="#/friend-chat?with=${n.from_user_id}" class="btn btn-sm btn-outline" style="padding:2px 12px;font-size:.75rem;" onclick="document.getElementById('notif-panel').style.display='none'">💬 发私信</a></div>`;
+      }
+      html += `<div style="padding:10px 16px;border-bottom:1px solid var(--gray-50);${bgStyle}">
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${dotStyle}<span style="font-size:.85rem;">${this.esc(n.content)}</span>
+        </div>
+        <div style="font-size:.75rem;color:var(--gray-400);margin-top:2px;">${this.timeAgo(n.created_at)}</div>
+        ${actionHtml}
+      </div>`;
+    }
+    panel.innerHTML = html;
+    // 点击外部关闭
+    const closePanel = (ev) => {
+      if (!ev.target.closest('#notif-panel') && !ev.target.closest('.notif-bell')) {
+        panel.style.display = 'none';
+        document.removeEventListener('click', closePanel);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closePanel), 0);
+  },
+
+  async acceptFriendReq(reqId, btn) {
+    const data = await this.api(`/api/social/friend-accept/${reqId}`, { method: 'POST' });
+    if (data.ok) {
+      btn.parentElement.innerHTML = '<span style="color:var(--success);font-size:.8rem;">✅ 已接受</span>';
+      this.toast('已添加好友');
+      this.renderNav();
+    }
+  },
+
+  async rejectFriendReq(reqId, btn) {
+    const data = await this.api(`/api/social/friend-reject/${reqId}`, { method: 'POST' });
+    if (data.ok) {
+      btn.parentElement.innerHTML = '<span style="color:var(--gray-400);font-size:.8rem;">已拒绝</span>';
+      this.toast('已拒绝好友请求');
+      this.renderNav();
+    }
+  },
+
+  async readAllNotifs() {
+    await this.api('/api/users/notifications/read_all', { method: 'POST' });
+    this.toggleNotifPanel(new Event('click'));
+    this.renderNav();
+  },
+
   async showMyPosts() {
     const dd = document.getElementById('user-dropdown');
     if (dd) dd.style.display = 'none';
@@ -132,6 +217,7 @@ const App = {
       '/edit-post': () => this.pageEditPost(),
       '/profile': () => this.pageProfile(),
       '/messages': () => this.pageMessages(),
+      '/friend-chat': () => this.pageFriendChat(),
       '/admin': () => this.pageAdmin(),
       '/dynamics': () => this.pageDynamics(),
     };
@@ -184,11 +270,18 @@ const App = {
     if (!isMe && this.user) {
       const followText = u.is_following ? '✅ 已关注' : '➕ 关注';
       const followClass = u.is_following ? 'btn-sm btn-outline' : 'btn-sm btn-primary';
-      const friendText = u.is_friend ? '✅ 好友' : u.friend_pending ? '⏳ 申请中' : '🤝 加好友';
-      const friendClass = u.is_friend ? 'btn-sm btn-outline' : u.friend_pending ? 'btn-sm btn-outline' : 'btn-sm btn-outline';
+      let friendBtnHtml = '';
+      if (u.is_friend) {
+        friendBtnHtml = `<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:20px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:.8rem;font-weight:600;">🤝 好友</span>
+          <a href="#/friend-chat?with=${u.id}" class="btn btn-sm btn-outline" style="border-color:#764ba2;color:#764ba2;" onclick="App.closeUserCard()">💬 私信</a>`;
+      } else if (u.friend_pending) {
+        friendBtnHtml = `<button class="btn-sm btn-outline" disabled>⏳ 申请中</button>`;
+      } else {
+        friendBtnHtml = `<button class="btn-sm btn-outline" onclick="App.sendFriendReq(${u.id}, this)">🤝 加好友</button>`;
+      }
       actionHtml = `
         <button class="${followClass}" onclick="App.toggleFollow(${u.id}, this)">${followText}</button>
-        <button class="${friendClass}" onclick="App.sendFriendReq(${u.id}, this)" ${u.is_friend || u.friend_pending ? 'disabled' : ''}>${friendText}</button>
+        ${friendBtnHtml}
         <a href="#/messages?to=${u.id}" class="btn btn-sm btn-outline" onclick="App.closeUserCard()">✉️ 私信</a>`;
     } else if (!this.user) {
       actionHtml = `<a href="#/login" class="btn btn-sm btn-primary">登录后操作</a>`;
@@ -866,12 +959,19 @@ const App = {
     if (!isMe && this.user) {
       const followText = isFollowing ? '✅ 已关注' : '➕ 关注';
       const followClass = isFollowing ? 'btn btn-sm btn-outline' : 'btn btn-sm btn-primary';
-      const friendText = isFriend ? '✅ 好友' : friendPending ? '⏳ 申请中' : '🤝 加好友';
-      const friendDisabled = isFriend || friendPending ? 'disabled' : '';
+      let friendBtn = '';
+      if (isFriend) {
+        friendBtn = `<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:20px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:.8rem;font-weight:600;">🤝 好友</span>
+          <a href="#/friend-chat?with=${u.id}" class="btn btn-sm btn-outline" style="border-color:#764ba2;color:#764ba2;">💬 私信</a>`;
+      } else if (friendPending) {
+        friendBtn = `<button class="btn btn-sm btn-outline" disabled>⏳ 申请中</button>`;
+      } else {
+        friendBtn = `<button class="btn btn-sm btn-outline" onclick="App.sendFriendReq(${u.id}, this)">🤝 加好友</button>`;
+      }
       socialBtns = `
         <button class="${followClass}" onclick="App.toggleFollow(${u.id}, this)">${followText}</button>
-        <button class="btn btn-sm btn-outline" onclick="App.sendFriendReq(${u.id}, this)" ${friendDisabled}>${friendText}</button>
-        <a href="#/messages?to=${u.id}" class="btn btn-sm btn-outline">✉️ 私信</a>`;
+        ${friendBtn}
+        <a href="#/messages?to=${u.id}" class="btn btn-sm btn-outline">✉️ 普通私信</a>`;
     }
 
     let html = `
@@ -881,6 +981,7 @@ const App = {
           <div class="profile-avatar-wrap">
             ${avatarHtml}
             ${u.role === 'admin' ? '<span class="profile-role-badge">管理员</span>' : ''}
+            ${isFriend ? '<span class="profile-role-badge" style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;">🤝 好友</span>' : ''}
           </div>
           <div class="info" style="flex:1;">
             <h2>${this.esc(u.username)} ${genderIcon}</h2>
@@ -1227,6 +1328,112 @@ const App = {
     document.getElementById('msg-sent').style.display = tab === 'sent' ? '' : 'none';
     document.getElementById('tab-recv').className = `btn btn-sm ${tab === 'recv' ? 'btn-primary' : 'btn-outline'}`;
     document.getElementById('tab-sent').className = `btn btn-sm ${tab === 'sent' ? 'btn-primary' : 'btn-outline'}`;
+  },
+
+  // ===== 好友私信 =====
+
+  async pageFriendChat() {
+    if (!this.user) { location.hash = '#/login'; return; }
+    const params = new URLSearchParams(location.hash.split('?')[1] || '');
+    const withUserId = params.get('with');
+
+    // 获取好友列表
+    const friendsRes = await this.api(`/api/social/friends/${this.user.id}`);
+    const friends = friendsRes.ok ? (friendsRes.friends || []) : [];
+
+    let html = `
+      <div class="section-title">💬 好友私信</div>
+      <div style="display:flex;gap:0;border-radius:12px;overflow:hidden;border:1px solid var(--gray-200);min-height:500px;">
+        <!-- 左侧好友列表 -->
+        <div id="friend-list-panel" style="width:220px;border-right:1px solid var(--gray-200);background:var(--gray-50);overflow-y:auto;">
+          <div style="padding:10px 12px;font-weight:700;font-size:.85rem;color:var(--gray-500);border-bottom:1px solid var(--gray-200);">好友列表 (${friends.length})</div>`;
+
+    for (const f of friends) {
+      const isActive = withUserId && parseInt(withUserId) === f.id;
+      html += `<div onclick="location.hash='#/friend-chat?with=${f.id}'" style="padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;${isActive ? 'background:var(--primary);color:#fff;' : 'border-bottom:1px solid var(--gray-100);'}">
+        ${f.avatar ? `<img src="${this.esc(f.avatar)}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;">` : `<div style="width:32px;height:32px;border-radius:50%;background:${isActive ? 'rgba(255,255,255,.3)' : 'var(--primary)'};color:#fff;display:flex;align-items:center;justify-content:center;font-size:.85rem;font-weight:700;">${f.username[0]}</div>`}
+        <div style="flex:1;overflow:hidden;">
+          <div style="font-weight:600;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${this.esc(f.username)}</div>
+          ${f.signature ? `<div style="font-size:.7rem;${isActive ? 'color:rgba(255,255,255,.7);' : 'color:var(--gray-400);'}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${this.esc(f.signature.slice(0,15))}</div>` : ''}
+        </div>
+      </div>`;
+    }
+
+    if (!friends.length) {
+      html += '<div style="padding:24px;text-align:center;color:var(--gray-400);font-size:.85rem;">暂无好友<br>去添加好友吧！</div>';
+    }
+
+    html += `</div>
+        <!-- 右侧聊天区域 -->
+        <div style="flex:1;display:flex;flex-direction:column;">
+          <div id="friend-chat-area" style="flex:1;overflow-y:auto;padding:16px;">`;
+
+    if (withUserId) {
+      // 加载聊天记录
+      const chatRes = await this.api(`/api/users/friend-chat/${withUserId}`);
+      if (!chatRes.ok) {
+        html += '<div style="text-align:center;padding:40px;color:var(--gray-400);">无法加载聊天</div>';
+      } else {
+        const friend = chatRes.friend;
+        const messages = chatRes.messages || [];
+        html += `<div style="text-align:center;margin-bottom:12px;padding:6px 12px;background:var(--gray-50);border-radius:8px;font-size:.8rem;color:var(--gray-500);">
+          与 <strong>${this.esc(friend.username)}</strong> 的好友私信
+        </div>`;
+        for (const m of messages) {
+          const isMe = m.sender_id === this.user.id;
+          html += `<div style="display:flex;justify-content:${isMe ? 'flex-end' : 'flex-start'};margin-bottom:10px;">
+            <div style="max-width:70%;padding:8px 14px;border-radius:${isMe ? '14px 14px 4px 14px' : '14px 14px 14px 4px'};background:${isMe ? 'var(--primary)' : 'var(--gray-100)'};color:${isMe ? '#fff' : 'var(--dark)'};font-size:.9rem;word-break:break-word;">
+              ${this.esc(m.content)}
+              <div style="font-size:.7rem;margin-top:2px;${isMe ? 'color:rgba(255,255,255,.7)' : 'color:var(--gray-400)'};">${this.timeAgo(m.created_at)}</div>
+            </div>
+          </div>`;
+        }
+        if (!messages.length) {
+          html += '<div style="text-align:center;padding:30px;color:var(--gray-400);">开始聊天吧 🎉</div>';
+        }
+      }
+    } else {
+      html += '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--gray-400);flex-direction:column;gap:8px;"><span style="font-size:2.5rem;">💬</span><span>选择好友开始聊天</span></div>';
+    }
+
+    html += `</div>`;
+
+    // 输入框
+    if (withUserId) {
+      html += `<div style="padding:12px 16px;border-top:1px solid var(--gray-200);display:flex;gap:8px;">
+        <input type="text" id="friend-chat-input" class="form-control" style="flex:1;" placeholder="输入消息..." onkeydown="if(event.key==='Enter')App.sendFriendChatMsg(${withUserId})">
+        <button class="btn btn-primary" onclick="App.sendFriendChatMsg(${withUserId})">发送</button>
+      </div>`;
+    }
+
+    html += `</div></div>`;
+    this.setContent(html);
+    // 滚动到底部
+    const chatArea = document.getElementById('friend-chat-area');
+    if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
+  },
+
+  async sendFriendChatMsg(friendId) {
+    const input = document.getElementById('friend-chat-input');
+    if (!input) return;
+    const content = input.value.trim();
+    if (!content) return;
+    const data = await this.api(`/api/users/friend-chat/${friendId}/send`, { method: 'POST', body: { content } });
+    if (data.ok) {
+      input.value = '';
+      // 在聊天区域追加消息
+      const chatArea = document.getElementById('friend-chat-area');
+      const msgDiv = document.createElement('div');
+      msgDiv.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:10px;';
+      msgDiv.innerHTML = `<div style="max-width:70%;padding:8px 14px;border-radius:14px 14px 4px 14px;background:var(--primary);color:#fff;font-size:.9rem;word-break:break-word;">
+        ${this.esc(content)}
+        <div style="font-size:.7rem;margin-top:2px;color:rgba(255,255,255,.7);">刚刚</div>
+      </div>`;
+      chatArea.appendChild(msgDiv);
+      chatArea.scrollTop = chatArea.scrollHeight;
+    } else {
+      this.toast(data.msg || '发送失败', 'error');
+    }
   },
 
   async pageAdmin() {

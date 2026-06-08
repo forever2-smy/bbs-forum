@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
-from ..models import db, Follow, Friend, Repost, Post, User
+from ..models import db, Follow, Friend, Repost, Post, User, Notification
 from sqlalchemy import or_, and_
 
 social_bp = Blueprint('social', __name__, url_prefix='/api/social')
@@ -85,6 +85,15 @@ def send_friend_request(user_id):
             return jsonify({'ok': False, 'msg': '已发送申请，等待对方同意'}), 400
     f = Friend(user_id=current_user.id, friend_id=user_id, status='pending')
     db.session.add(f)
+    # 通知被添加方
+    notif = Notification(
+        user_id=user_id,
+        type='friend_request',
+        from_user_id=current_user.id,
+        ref_id=f.id,
+        content=f'{current_user.username} 请求添加你为好友'
+    )
+    db.session.add(notif)
     db.session.commit()
     return jsonify({'ok': True, 'msg': '好友申请已发送'})
 
@@ -96,6 +105,25 @@ def accept_friend_request(request_id):
     if freq.friend_id != current_user.id:
         return jsonify({'ok': False, 'msg': '无权操作'}), 403
     freq.status = 'accepted'
+    # 通知申请方
+    notif = Notification(
+        user_id=freq.user_id,
+        type='friend_accepted',
+        from_user_id=current_user.id,
+        content=f'{current_user.username} 已接受你的好友请求'
+    )
+    db.session.add(notif)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@social_bp.route('/friend-reject/<int:request_id>', methods=['POST'])
+@login_required
+def reject_friend_request(request_id):
+    freq = Friend.query.get_or_404(request_id)
+    if freq.friend_id != current_user.id:
+        return jsonify({'ok': False, 'msg': '无权操作'}), 403
+    db.session.delete(freq)
     db.session.commit()
     return jsonify({'ok': True})
 

@@ -298,6 +298,7 @@ class Message(db.Model):
     receiver_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     content = db.Column(db.Text, nullable=False)
     is_read = db.Column(db.Boolean, default=False)
+    is_friend_msg = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     sender = db.relationship('User', foreign_keys=[sender_id])
@@ -308,8 +309,38 @@ class Message(db.Model):
             'id': self.id,
             'sender_id': self.sender_id,
             'sender_name': self.sender.username if self.sender else '',
+            'sender_avatar': self.sender.avatar if self.sender else '',
             'receiver_id': self.receiver_id,
             'receiver_name': self.receiver.username if self.receiver else '',
+            'content': self.content,
+            'is_read': self.is_read,
+            'is_friend_msg': self.is_friend_msg or False,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class Notification(db.Model):
+    __tablename__ = 'notifications'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    type = db.Column(db.String(30), nullable=False)  # friend_request / friend_accepted / system
+    from_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    ref_id = db.Column(db.Integer, default=0)  # friend request id
+    content = db.Column(db.String(500), default='')
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', foreign_keys=[user_id])
+    from_user = db.relationship('User', foreign_keys=[from_user_id])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'type': self.type,
+            'from_user_id': self.from_user_id,
+            'from_username': self.from_user.username if self.from_user else '',
+            'from_avatar': self.from_user.avatar if self.from_user else '',
+            'ref_id': self.ref_id,
             'content': self.content,
             'is_read': self.is_read,
             'created_at': self.created_at.isoformat() if self.created_at else None,
