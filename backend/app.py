@@ -59,9 +59,50 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        _migrate_db()
         _init_data()
 
     return app
+
+
+def _migrate_db():
+    """自动为已有表添加缺失的列（db.create_all 只能建新表不能加新列）"""
+    db_url = str(db.engine.url)
+    is_sqlite = db_url.startswith('sqlite')
+
+    def column_exists(table, column):
+        if is_sqlite:
+            result = db.session.execute(db.text(f"PRAGMA table_info({table})")).fetchall()
+            return any(row[1] == column for row in result)
+        else:
+            result = db.session.execute(db.text(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :col"
+            ), {'table': table, 'col': column}).scalar()
+            return result > 0
+
+    def add_col(table, column, col_type, default=None):
+        if not column_exists(table, column):
+            try:
+                default_sql = f" DEFAULT {default}" if default is not None else ""
+                db.session.execute(db.text(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {col_type}{default_sql}"
+                ))
+                db.session.commit()
+                print(f"[Migration] Added {table}.{column}")
+            except Exception as e:
+                db.session.rollback()
+                print(f"[Migration] Skip {table}.{column}: {e}")
+
+    # replies 表新增列（楼中楼功能）
+    add_col('replies', 'parent_id', 'INTEGER', default='NULL')
+    add_col('replies', 'reply_to_id', 'INTEGER', default='NULL')
+
+    # messages 表新增列（好友私信）
+    if is_sqlite:
+        add_col('messages', 'is_friend_msg', 'BOOLEAN', default='0')
+    else:
+        add_col('messages', 'is_friend_msg', 'TINYINT(1)', default='0')
 
 
 def _init_data():
