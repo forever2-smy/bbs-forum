@@ -85,6 +85,7 @@ def send_friend_request(user_id):
             return jsonify({'ok': False, 'msg': '已发送申请，等待对方同意'}), 400
     f = Friend(user_id=current_user.id, friend_id=user_id, status='pending')
     db.session.add(f)
+    db.session.flush()  # 先 flush 获取 f.id
     # 通知被添加方
     notif = Notification(
         user_id=user_id,
@@ -101,6 +102,8 @@ def send_friend_request(user_id):
 @social_bp.route('/friend-accept/<int:request_id>', methods=['POST'])
 @login_required
 def accept_friend_request(request_id):
+    if request_id == 0:
+        return jsonify({'ok': False, 'msg': '无效的申请记录，请重新发送好友申请'}), 400
     freq = Friend.query.get_or_404(request_id)
     if freq.friend_id != current_user.id:
         return jsonify({'ok': False, 'msg': '无权操作'}), 403
@@ -120,6 +123,8 @@ def accept_friend_request(request_id):
 @social_bp.route('/friend-reject/<int:request_id>', methods=['POST'])
 @login_required
 def reject_friend_request(request_id):
+    if request_id == 0:
+        return jsonify({'ok': False, 'msg': '无效的申请记录'}), 400
     freq = Friend.query.get_or_404(request_id)
     if freq.friend_id != current_user.id:
         return jsonify({'ok': False, 'msg': '无权操作'}), 403

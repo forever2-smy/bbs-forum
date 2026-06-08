@@ -137,10 +137,14 @@ const App = {
       const dotStyle = n.is_read ? '' : '<span style="color:var(--danger);font-size:.7rem;margin-right:4px;">●</span>';
       let actionHtml = '';
       if (n.type === 'friend_request') {
-        actionHtml = `<div style="margin-top:6px;display:flex;gap:6px;">
-          <button class="btn btn-sm btn-primary" onclick="App.acceptFriendReq(${n.ref_id},this)" style="padding:2px 12px;font-size:.75rem;">接受</button>
-          <button class="btn btn-sm btn-outline" onclick="App.rejectFriendReq(${n.ref_id},this)" style="padding:2px 12px;font-size:.75rem;">拒绝</button>
-        </div>`;
+        if (n.ref_id && n.ref_id > 0) {
+          actionHtml = `<div style="margin-top:6px;display:flex;gap:6px;">
+            <button class="btn btn-sm btn-primary" onclick="App.acceptFriendReq(${n.ref_id},this)" style="padding:2px 12px;font-size:.75rem;">接受</button>
+            <button class="btn btn-sm btn-outline" onclick="App.rejectFriendReq(${n.ref_id},this)" style="padding:2px 12px;font-size:.75rem;">拒绝</button>
+          </div>`;
+        } else {
+          actionHtml = `<div style="margin-top:4px;font-size:.75rem;color:var(--gray-400);">⚠️ 该申请记录已失效，请让对方重新发送</div>`;
+        }
       } else if (n.type === 'friend_accepted') {
         actionHtml = `<div style="margin-top:4px;"><a href="#/friend-chat?with=${n.from_user_id}" class="btn btn-sm btn-outline" style="padding:2px 12px;font-size:.75rem;" onclick="document.getElementById('notif-panel').style.display='none'">💬 发私信</a></div>`;
       }
@@ -169,6 +173,8 @@ const App = {
       btn.parentElement.innerHTML = '<span style="color:var(--success);font-size:.8rem;">✅ 已接受</span>';
       App.toast('已添加好友');
       App.renderNav();
+    } else {
+      App.toast(data.msg || '操作失败', 'error');
     }
   },
 
@@ -178,6 +184,8 @@ const App = {
       btn.parentElement.innerHTML = '<span style="color:var(--gray-400);font-size:.8rem;">已拒绝</span>';
       App.toast('已拒绝好友请求');
       App.renderNav();
+    } else {
+      App.toast(data.msg || '操作失败', 'error');
     }
   },
 
