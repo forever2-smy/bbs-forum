@@ -394,11 +394,13 @@ const App = {
     if (!data.ok) return;
     const boards = data.boards;
 
-    // 获取热门帖子和活跃用户
+    // 获取热门帖子、活跃用户和论坛统计
     const hotPostsRes = await this.api('/api/posts?per_page=8');
     const hotPosts = hotPostsRes.ok ? (hotPostsRes.posts || []) : [];
     const activeUsersRes = await this.api('/api/users/active?limit=6');
     const activeUsers = activeUsersRes.ok ? (activeUsersRes.users || []) : [];
+    const statsRes = await this.api('/api/boards/stats');
+    const stats = statsRes.ok ? statsRes : {};
 
     let html = `
       <div class="hero-search">
@@ -457,9 +459,9 @@ const App = {
           <div class="sidebar-card">
             <div class="sidebar-card-title">📊 论坛统计</div>
             <div style="padding:10px 16px 14px;font-size:.85rem;color:var(--gray-600);line-height:2;">
-              📝 帖子：<strong>${hotPostsRes.total || 0}</strong><br>
-              📋 板块：<strong>${boards.length}</strong><br>
-              👥 用户：<strong>${activeUsersRes.ok ? (activeUsersRes.users || []).length : '?'}</strong>
+              📝 帖子：<strong>${stats.post_count || 0}</strong><br>
+              📋 板块：<strong>${stats.board_count || boards.length}</strong><br>
+              👥 用户：<strong>${stats.user_count || 0}</strong>
             </div>
           </div>
         </div>

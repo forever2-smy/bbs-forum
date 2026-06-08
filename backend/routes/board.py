@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from ..models import db, Board
+from ..models import db, Board, User, Post
 
 board_bp = Blueprint('board', __name__, url_prefix='/api/boards')
 
@@ -8,6 +8,16 @@ board_bp = Blueprint('board', __name__, url_prefix='/api/boards')
 def list_boards():
     boards = Board.query.order_by(Board.sort_order).all()
     return jsonify({'ok': True, 'boards': [b.to_dict() for b in boards]})
+
+
+@board_bp.route('/stats', methods=['GET'])
+def stats():
+    return jsonify({
+        'ok': True,
+        'post_count': Post.query.filter_by(status='normal').count(),
+        'board_count': Board.query.count(),
+        'user_count': User.query.count(),
+    })
 
 
 @board_bp.route('/<int:board_id>', methods=['GET'])
